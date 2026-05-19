@@ -1,0 +1,227 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <DNSServer.h>
+
+// Nombre de la red WiFi que creará la ESP32
+const char* AP_SSID = "Hotel Estres - WiFi";
+
+// Objetos para el servidor DNS y servidor web
+DNSServer dnsServer;
+WebServer server(80);
+
+// Dirección IP del portal cautivo
+IPAddress AP_IP(192, 168, 4, 1);
+
+// Página principal con el formulario de acceso
+const char INDEX_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hotel Estres</title>
+
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+    padding: 40px 20px;
+    background: #f4f4f4;
+  }
+
+  h2 { color: #333; }
+
+  input {
+    display: block;
+    width: 100%;
+    max-width: 300px;
+    margin: 10px auto;
+    padding: 10px;
+    font-size: 16px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+  }
+
+  button {
+    margin-top: 15px;
+    padding: 12px 30px;
+    background: #b8860b;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+</style>
+</head>
+
+<body>
+  <h2>Hotel Estrés</h2>
+
+  <p>Ingresa tus datos para conectarte al WiFi</p>
+
+  <!-- Formulario -->
+  <form action="/connect" method="GET">
+
+    <input type="text"
+           name="nombre"
+           placeholder="Tu nombre"
+           required>
+
+    <input type="number"
+           name="cuarto"
+           placeholder="Número de cuarto"
+           required>
+
+    <button type="submit">Conectar</button>
+
+  </form>
+</body>
+</html>
+)rawliteral";
+
+// Página de bienvenida después de llenar el formulario
+const char WELCOME_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bienvenido</title>
+
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+    padding: 40px 20px;
+    background: #f4f4f4;
+  }
+
+  h2 { color: #b8860b; }
+
+  p {
+    font-size: 18px;
+    color: #333;
+  }
+</style>
+</head>
+
+<body>
+
+  <h2>¡Bienvenido, {{NOMBRE}}!</h2>
+
+  <p>Habitación: {{CUARTO}}</p>
+
+  <p>Ya tienes acceso al WiFi del Hotel Estrés.</p>
+
+</body>
+</html>
+)rawliteral";
+
+// Función para redirigir automáticamente al portal cautivo
+void handleRedirect() {
+
+  server.sendHeader("Location", "http://192.168.4.1/", true);
+
+  server.send(302, "text/plain", "");
+}
+
+// Función que muestra la página principal
+void handleRoot() {
+
+  server.send_P(200, "text/html", INDEX_HTML);
+}
+
+// Función que procesa el formulario
+void handleConnect() {
+
+  // Obtener datos ingresados
+  String nombre = server.arg("nombre");
+
+  String cuarto = server.arg("cuarto");
+
+  // Si falta información, redirigir nuevamente
+  if (nombre.isEmpty() || cuarto.isEmpty()) {
+
+    handleRedirect();
+
+    return;
+  }
+
+  // Crear página personalizada
+  String page = String(WELCOME_HTML);
+
+  page.replace("{{NOMBRE}}", nombre);
+
+  page.replace("{{CUARTO}}", cuarto);
+
+  // Enviar página al navegador
+  server.send(200, "text/html", page);
+
+  Serial.print("Huesped: ");
+  Serial.println(nombre);
+
+  Serial.print("Cuarto: ");
+  Serial.println(cuarto);
+}
+
+void setup() {
+
+  Serial.begin(115200);
+
+  // Configurar ESP32 en modo Access Point
+  WiFi.mode(WIFI_AP);
+
+  // Configurar IP de la red
+  WiFi.softAPConfig(
+    AP_IP,
+    AP_IP,
+    IPAddress(255,255,255,0)
+  );
+
+  // Crear red WiFi
+  WiFi.softAP(AP_SSID);
+
+  // Iniciar servidor DNS para redirección automática
+  dnsServer.start(53, "*", AP_IP);
+
+  // Ruta principal
+  server.on("/", HTTP_GET, handleRoot);
+
+  // Ruta del formulario
+  server.on("/connect", HTTP_GET, handleConnect);
+
+  // Rutas necesarias para detectar el portal cautivo
+  server.on("/generate_204",        HTTP_GET, handleRedirect);
+
+  server.on("/hotspot-detect.html", HTTP_GET, handleRedirect);
+
+  server.on("/connecttest.txt",     HTTP_GET, handleRedirect);
+
+  server.on("/ncsi.txt",            HTTP_GET, handleRedirect);
+
+  // Redirigir cualquier otra ruta
+  server.onNotFound(handleRedirect);
+
+  // Iniciar servidor web
+  server.begin();
+
+  Serial.println("Portal listo!");
+}
+
+void loop() {
+
+  dnsServer.processNextRequest();
+
+  server.handleClient();
+}
+
+
+
+
+
+
+
+
+
+
